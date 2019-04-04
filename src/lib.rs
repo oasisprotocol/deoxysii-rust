@@ -4,9 +4,8 @@
 #[cfg(not(all(
     target_feature = "aes",
     target_feature = "ssse3",
-    target_feature = "avx2"
 )))]
-compile_error!("The following target_feature flags must be set: +aes,+ssse3,+avx2.");
+compile_error!("The following target_feature flags must be set: +aes,+ssse3.");
 
 extern crate core;
 extern crate ring;
