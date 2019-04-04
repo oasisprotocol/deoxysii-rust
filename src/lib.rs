@@ -5,7 +5,7 @@
 compile_error!("The following target_feature flags must be set: +aes,+ssse3.");
 
 extern crate core;
-extern crate ring;
+extern crate subtle;
 extern crate zeroize;
 
 use core::arch::x86_64::{
@@ -14,7 +14,7 @@ use core::arch::x86_64::{
     _mm_store_si128, _mm_storeu_si128, _mm_xor_si128,
 };
 use failure::{format_err, Fallible};
-use ring::constant_time::verify_slices_are_equal;
+use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Size of the Deoxys-II-256-128 key in bytes.
@@ -356,7 +356,8 @@ impl DeoxysII {
         bc_encrypt_in_place(&mut auth, &self.derived_ks, &dec_nonce);
 
         // Verify tag.
-        if !verify_slices_are_equal(&tag, &auth).is_ok() {
+        let tags_are_equal = tag.ct_eq(&auth);
+        if tags_are_equal.unwrap_u8() == 0 {
             plaintext.zeroize();
             tag.zeroize();
             auth.zeroize();
