@@ -1,10 +1,7 @@
 //! Deoxys-II-256-128 MRAE primitives implementation.
 #![feature(test)]
 
-#[cfg(not(all(
-    target_feature = "aes",
-    target_feature = "ssse3",
-)))]
+#[cfg(not(all(target_feature = "aes", target_feature = "ssse3",)))]
 compile_error!("The following target_feature flags must be set: +aes,+ssse3.");
 
 extern crate core;
@@ -115,82 +112,69 @@ impl DeoxysII {
     ) -> Fallible<Vec<u8>> {
         let pt_len = plaintext.len();
 
-        let mut tweak = [0u8; TWEAK_SIZE];
-        let mut tmp = [0u8; BLOCK_SIZE];
-
         // Handle additional data.
         let mut ad_len = additional_data.len();
         let mut auth = [0u8; TAG_SIZE];
         let mut i: usize = 0;
-        while ad_len >= BLOCK_SIZE {
-            // auth <- auth ^ Ek(0010||i, Ai+1)
-            encode_tag_tweak(&mut tweak, PREFIX_AD_BLOCK, i as u64);
-            bc_encrypt(
-                &mut tmp,
-                &self.derived_ks,
-                &tweak,
-                &additional_data[i * BLOCK_SIZE..i * BLOCK_SIZE + BLOCK_SIZE],
-            );
-            xor_block_inplace(&mut auth, &tmp);
+        if ad_len >= BLOCK_SIZE {
+            let full_blocks = ad_len / BLOCK_SIZE;
 
-            ad_len -= BLOCK_SIZE;
-            i += 1;
+            accumulate_blocks(
+                &mut auth,
+                &self.derived_ks,
+                PREFIX_AD_BLOCK,
+                0,
+                &additional_data[0..full_blocks * BLOCK_SIZE],
+                full_blocks,
+            );
+
+            ad_len -= full_blocks * BLOCK_SIZE;
+            i += full_blocks;
         }
         if ad_len > 0 {
             let remaining = ad_len;
-
-            // auth <- auth ^ Ek(0110||la, pad10*(A*))
-            encode_tag_tweak(&mut tweak, PREFIX_AD_FINAL, i as u64);
 
             let mut astar = [0u8; BLOCK_SIZE];
             astar[..remaining]
                 .copy_from_slice(&additional_data[additional_data.len() - remaining..]);
             astar[remaining] = 0x80;
 
-            bc_encrypt(&mut tmp, &self.derived_ks, &tweak, &astar);
-            xor_block_inplace(&mut auth, &tmp);
+            accumulate_blocks(&mut auth, &self.derived_ks, PREFIX_AD_FINAL, i, &astar, 1);
         }
 
         // Handle message authentication and tag generation.
         let mut msg_len = pt_len;
-        let mut tag = [0u8; TAG_SIZE];
-        tag.copy_from_slice(&auth);
         let mut j: usize = 0;
-        while msg_len >= BLOCK_SIZE {
-            // tag <- tag ^ Ek(0000||j, Mj+1)
-            encode_tag_tweak(&mut tweak, PREFIX_MSG_BLOCK, j as u64);
-            bc_encrypt(
-                &mut tmp,
-                &self.derived_ks,
-                &tweak,
-                &plaintext[j * BLOCK_SIZE..j * BLOCK_SIZE + BLOCK_SIZE],
-            );
-            xor_block_inplace(&mut tag, &tmp);
+        if msg_len >= BLOCK_SIZE {
+            let full_blocks = msg_len / BLOCK_SIZE;
 
-            msg_len -= BLOCK_SIZE;
-            j += 1;
+            accumulate_blocks(
+                &mut auth,
+                &self.derived_ks,
+                PREFIX_MSG_BLOCK,
+                0,
+                &plaintext[0..full_blocks * BLOCK_SIZE],
+                full_blocks,
+            );
+
+            msg_len -= full_blocks * BLOCK_SIZE;
+            j += full_blocks;
         }
         if msg_len > 0 {
             let remaining = msg_len;
-
-            // tag <- tag ^ Ek(0100||l, pad10*(M*))
-            encode_tag_tweak(&mut tweak, PREFIX_MSG_FINAL, j as u64);
 
             let mut mstar = [0u8; BLOCK_SIZE];
             mstar[..remaining].copy_from_slice(&plaintext[pt_len - remaining..]);
             mstar[remaining] = 0x80;
 
-            bc_encrypt(&mut tmp, &self.derived_ks, &tweak, &mstar);
-            xor_block_inplace(&mut tag, &tmp);
+            accumulate_blocks(&mut auth, &self.derived_ks, PREFIX_MSG_FINAL, j, &mstar, 1);
         }
 
         // Handle nonce.
-        // tag <- Ek(0001||0000||N, tag)
         let mut enc_nonce = [0u8; BLOCK_SIZE];
         enc_nonce[1..].copy_from_slice(nonce);
         enc_nonce[0] = PREFIX_TAG << PREFIX_SHIFT;
-        let tc = tag.clone();
-        bc_encrypt(&mut tag, &self.derived_ks, &enc_nonce, &tc);
+        bc_encrypt_in_place(&mut auth, &self.derived_ks, &enc_nonce);
 
         // Allocate storage for the ciphertext.
         let mut c = Vec::with_capacity(pt_len + TAG_SIZE);
@@ -199,40 +183,41 @@ impl DeoxysII {
         }
 
         // Put the tag at the end.
-        c[pt_len..pt_len + TAG_SIZE].copy_from_slice(&tag);
+        c[pt_len..pt_len + TAG_SIZE].copy_from_slice(&auth);
 
         // Encrypt message.
-        let mut enc_blk = [0u8; BLOCK_SIZE];
         enc_nonce[0] = 0;
 
         // encode_enc_tweak() requires the first byte of the tag to be modified.
-        tag[0] |= 0x80;
+        auth[0] |= 0x80;
 
         msg_len = pt_len;
         j = 0;
-        while msg_len >= BLOCK_SIZE {
-            // Cj <- Mj ^ Ek(1||tag^j, 00000000||N)
-            encode_enc_tweak(&mut tweak, &tag, j as u64);
-            bc_encrypt(&mut enc_blk, &self.derived_ks, &tweak, &enc_nonce);
-            let range = j * BLOCK_SIZE..j * BLOCK_SIZE + BLOCK_SIZE;
-            xor_block(&mut c[range.clone()], &plaintext[range], &enc_blk);
+        if msg_len >= BLOCK_SIZE {
+            let full_blocks = msg_len / BLOCK_SIZE;
 
-            msg_len -= BLOCK_SIZE;
-            j += 1;
+            bc_xor_blocks(
+                &mut c[0..full_blocks * BLOCK_SIZE],
+                &self.derived_ks,
+                &auth,
+                0,
+                &enc_nonce,
+                &plaintext[0..full_blocks * BLOCK_SIZE],
+                full_blocks,
+            );
+
+            msg_len -= full_blocks * BLOCK_SIZE;
+            j += full_blocks;
         }
         if msg_len > 0 {
             let remaining = msg_len;
 
-            // C* <- M* ^ Ek(1||tag^1, 00000000||N)
-            encode_enc_tweak(&mut tweak, &tag, j as u64);
-            bc_encrypt(&mut enc_blk, &self.derived_ks, &tweak, &enc_nonce);
-            let range = j * BLOCK_SIZE..j * BLOCK_SIZE + BLOCK_SIZE;
-            xor_bytes(
-                &mut c[range],
-                &plaintext[j * BLOCK_SIZE..],
-                &enc_blk,
-                remaining,
-            );
+            let mut tmp = [0u8; BLOCK_SIZE];
+            tmp[..remaining].copy_from_slice(&plaintext[pt_len - remaining..]);
+            let tmptmp = tmp; // XXX: Sigh.
+
+            bc_xor_blocks(&mut tmp, &self.derived_ks, &auth, j, &enc_nonce, &tmptmp, 1);
+            c[pt_len - remaining..pt_len].copy_from_slice(&tmp[..remaining]);
         }
 
         Ok(c)
@@ -262,164 +247,123 @@ impl DeoxysII {
         unsafe {
             plaintext.set_len(ct_len);
         }
-        let mut dec_tweak = [0u8; TWEAK_SIZE];
-        let mut dec_blk = [0u8; BLOCK_SIZE];
         let mut dec_nonce = [0u8; BLOCK_SIZE];
+        let mut dec_tag = [0u8; TAG_SIZE];
         let mut j: usize = 0;
 
-        // 0x00 || nonce
         dec_nonce[1..].copy_from_slice(nonce);
+        dec_tag.copy_from_slice(&tag);
+        dec_tag[0] |= 0x80;
 
-        // encode_enc_tweak() requires the first byte of the tag to be modified.
-        let prev_tag0 = tag[0];
-        tag[0] |= 0x80;
+        if ct_len >= BLOCK_SIZE {
+            let full_blocks = ct_len / BLOCK_SIZE;
 
-        while ct_len >= BLOCK_SIZE {
-            // Mj <- Cj ^ Ek(1||tag^j, 00000000||N)
-            encode_enc_tweak(&mut dec_tweak, &tag, j as u64);
-            bc_encrypt(&mut dec_blk, &self.derived_ks, &dec_tweak, &dec_nonce);
-            let range = j * BLOCK_SIZE..j * BLOCK_SIZE + BLOCK_SIZE;
-            xor_block(&mut plaintext[range.clone()], &ciphertext[range], &dec_blk);
+            bc_xor_blocks(
+                &mut plaintext[0..full_blocks * BLOCK_SIZE],
+                &self.derived_ks,
+                &dec_tag,
+                0,
+                &dec_nonce,
+                &ciphertext[0..full_blocks * BLOCK_SIZE],
+                full_blocks,
+            );
 
-            ct_len -= BLOCK_SIZE;
-            j += 1;
+            ct_len -= full_blocks * BLOCK_SIZE;
+            j += full_blocks;
         }
         if ct_len > 0 {
-            // M* <- C* ^ Ek(1||tag^1, 00000000||N)
-            encode_enc_tweak(&mut dec_tweak, &tag, j as u64);
-            bc_encrypt(&mut dec_blk, &self.derived_ks, &dec_tweak, &dec_nonce);
-            xor_bytes(
-                &mut plaintext[j * BLOCK_SIZE..],
-                &ciphertext[j * BLOCK_SIZE..],
-                &dec_blk,
-                ct_len,
-            );
-        }
+            let remaining = ct_len;
+            let pt_len = plaintext.len();
 
-        // Undo the tag modification required for encode_enc_tweak().
-        tag[0] = prev_tag0;
+            let mut tmp = [0u8; BLOCK_SIZE];
+            tmp[..remaining].copy_from_slice(&ciphertext[pt_len - remaining..]);
+            let tmptmp = tmp; // XXX: Sigh
+
+            bc_xor_blocks(
+                &mut tmp,
+                &self.derived_ks,
+                &dec_tag,
+                j,
+                &dec_nonce,
+                &tmptmp,
+                1,
+            );
+            plaintext[pt_len - remaining..pt_len].copy_from_slice(&tmp[..remaining]);
+        }
 
         // Handle associated data.
         let mut ad_len = additional_data.len();
         let mut auth = [0u8; TAG_SIZE];
-        let mut tweak = [0u8; TWEAK_SIZE];
-        let mut tmp = [0u8; BLOCK_SIZE];
         let mut i: usize = 0;
 
-        while ad_len >= BLOCK_SIZE {
-            // auth <- auth ^ Ek(0010||i, Ai+1)
-            encode_tag_tweak(&mut tweak, PREFIX_AD_BLOCK, i as u64);
-            bc_encrypt(
-                &mut tmp,
-                &self.derived_ks,
-                &tweak,
-                &additional_data[i * BLOCK_SIZE..i * BLOCK_SIZE + BLOCK_SIZE],
-            );
-            xor_block_inplace(&mut auth, &tmp);
+        if ad_len >= BLOCK_SIZE {
+            let full_blocks = ad_len / BLOCK_SIZE;
 
-            ad_len -= BLOCK_SIZE;
-            i += 1;
+            accumulate_blocks(
+                &mut auth,
+                &self.derived_ks,
+                PREFIX_AD_BLOCK,
+                0,
+                &additional_data[0..full_blocks * BLOCK_SIZE],
+                full_blocks,
+            );
+
+            ad_len -= full_blocks * BLOCK_SIZE;
+            i += full_blocks;
         }
         if ad_len > 0 {
             let remaining = ad_len;
 
-            // auth <- auth ^ Ek(0110||la, pad10*(A*))
-            encode_tag_tweak(&mut tweak, PREFIX_AD_FINAL, i as u64);
-
             let mut astar = [0u8; BLOCK_SIZE];
             astar[..remaining]
                 .copy_from_slice(&additional_data[additional_data.len() - remaining..]);
-            astar[ad_len] = 0x80;
+            astar[remaining] = 0x80;
 
-            bc_encrypt(&mut tmp, &self.derived_ks, &tweak, &astar);
-            xor_block_inplace(&mut auth, &tmp);
+            accumulate_blocks(&mut auth, &self.derived_ks, PREFIX_AD_FINAL, i, &astar, 1);
         }
 
         // Handle message authentication and tag generation.
         let mut msg_len = plaintext.len();
-        let mut tag_p = [0u8; TAG_SIZE];
-        tag_p.copy_from_slice(&auth);
         j = 0;
 
-        while msg_len >= BLOCK_SIZE {
-            // tag' <- tag' ^ Ek(0000||j, Mj+1)
-            encode_tag_tweak(&mut tweak, PREFIX_MSG_BLOCK, j as u64);
-            bc_encrypt(
-                &mut tmp,
-                &self.derived_ks,
-                &tweak,
-                &plaintext[j * BLOCK_SIZE..j * BLOCK_SIZE + BLOCK_SIZE],
-            );
-            xor_block_inplace(&mut tag_p, &tmp);
+        if msg_len >= BLOCK_SIZE {
+            let full_blocks = msg_len / BLOCK_SIZE;
 
-            msg_len -= BLOCK_SIZE;
-            j += 1;
+            accumulate_blocks(
+                &mut auth,
+                &self.derived_ks,
+                PREFIX_MSG_BLOCK,
+                0,
+                &plaintext[0..full_blocks * BLOCK_SIZE],
+                full_blocks,
+            );
+
+            msg_len -= full_blocks * BLOCK_SIZE;
+            j += full_blocks;
         }
         if msg_len > 0 {
             let remaining = msg_len;
 
-            // tag <- tag ^ Ek(0100||l, pad10*(M*))
-            encode_tag_tweak(&mut tweak, PREFIX_MSG_FINAL, j as u64);
-
             let mut mstar = [0u8; BLOCK_SIZE];
             mstar[..remaining].copy_from_slice(&plaintext[plaintext.len() - remaining..]);
-            mstar[msg_len] = 0x80;
+            mstar[remaining] = 0x80;
 
-            bc_encrypt(&mut tmp, &self.derived_ks, &tweak, &mstar);
-            xor_block_inplace(&mut tag_p, &tmp);
+            accumulate_blocks(&mut auth, &self.derived_ks, PREFIX_MSG_FINAL, j, &mstar, 1);
         }
 
         // tag' <- Ek(0001||0000||N, tag')
         dec_nonce[0] = PREFIX_TAG << PREFIX_SHIFT;
-        let tpc = tag_p.clone();
-        bc_encrypt(&mut tag_p, &self.derived_ks, &dec_nonce, &tpc);
+        bc_encrypt_in_place(&mut auth, &self.derived_ks, &dec_nonce);
 
         // Verify tag.
-        if !verify_slices_are_equal(&tag, &tag_p).is_ok() {
+        if !verify_slices_are_equal(&tag, &auth).is_ok() {
             plaintext.zeroize();
             tag.zeroize();
-            tag_p.zeroize();
+            auth.zeroize();
             Err(format_err!("deoxysii: tag verification failed"))
         } else {
             Ok(plaintext)
         }
-    }
-}
-
-/// Performs `out <- a XOR b` for every byte.
-#[inline]
-fn xor_bytes(out: &mut [u8], a: &[u8], b: &[u8], n: usize) {
-    // Use `xor_block()` or `xor_block_inplace()` for BLOCK_SIZEd xors.
-    debug_assert!(n < BLOCK_SIZE);
-
-    for i in 0..n {
-        out[i] = a[i] ^ b[i];
-    }
-}
-
-/// Same as `xor_bytes`, but `n == BLOCK_SIZE`.
-#[inline]
-fn xor_block(out: &mut [u8], a: &[u8], b: &[u8]) {
-    unsafe {
-        let xa = _mm_loadu_si128(a.as_ptr() as *const __m128i);
-        let xb = _mm_loadu_si128(b.as_ptr() as *const __m128i);
-
-        let xout = _mm_xor_si128(xa, xb);
-
-        _mm_storeu_si128(out.as_mut_ptr() as *mut __m128i, xout);
-    }
-}
-
-/// Same as `xor_block`, but `out == a`.
-#[inline]
-fn xor_block_inplace(out: &mut [u8], b: &[u8]) {
-    unsafe {
-        let xo = _mm_loadu_si128(out.as_ptr() as *const __m128i);
-        let xb = _mm_loadu_si128(b.as_ptr() as *const __m128i);
-
-        let xout = _mm_xor_si128(xo, xb);
-
-        _mm_storeu_si128(out.as_mut_ptr() as *mut __m128i, xout);
     }
 }
 
@@ -498,20 +442,18 @@ fn stk_derive_k(key: &[u8; KEY_SIZE]) -> [[u8; STK_SIZE]; STK_COUNT] {
     }
 }
 
-/// Performs block encryption using the block cypher.
-fn bc_encrypt(
-    ciphertext: &mut [u8; BLOCK_SIZE],
-    derived_ks: &[[u8; STK_SIZE]; STK_COUNT],
+/// Performs block encryption using the block cipher in-place.
+fn bc_encrypt_in_place(
+    block: &mut [u8; BLOCK_SIZE],
+    derived_ks: &[[u8; STK_SIZE]; STK_COUNT], // MUST be 16 byte aligned.
     tweak: &[u8; TWEAK_SIZE],
-    plaintext: &[u8],
 ) {
-    debug_assert!(plaintext.len() == BLOCK_SIZE);
     debug_assert!(BLOCK_SIZE == 16);
 
     unsafe {
         // First iteration: load plaintext, derive first sub-tweak key, then
         // xor it with the plaintext.
-        let pt = _mm_loadu_si128(plaintext.as_ptr() as *const __m128i);
+        let pt = _mm_loadu_si128(block.as_ptr() as *const __m128i);
         let dk0 = _mm_load_si128(derived_ks[0].as_ptr() as *const __m128i);
         let mut tk1 = _mm_loadu_si128(tweak.as_ptr() as *const __m128i);
         let stk1 = _mm_xor_si128(dk0, tk1);
@@ -520,51 +462,213 @@ fn bc_encrypt(
         // Remaining iterations.
         for i in 1..ROUNDS + 1 {
             // Derive sub-tweak key for this round.
-            let dki = _mm_load_si128(derived_ks[i].as_ptr() as *const __m128i);
             tk1 = _mm_shuffle_epi8(tk1, H_SHUFFLE);
-            let round_key = _mm_xor_si128(dki, tk1);
+            let dki = _mm_load_si128(derived_ks[i].as_ptr() as *const __m128i);
 
             // Perform AESENC on the block.
-            ct = _mm_aesenc_si128(ct, round_key);
+            ct = _mm_aesenc_si128(ct, _mm_xor_si128(dki, tk1));
         }
 
-        _mm_storeu_si128(ciphertext.as_mut_ptr() as *mut __m128i, ct);
+        _mm_storeu_si128(block.as_mut_ptr() as *mut __m128i, ct);
     }
 }
 
 #[inline]
-fn encode_tag_tweak(out: &mut [u8; TWEAK_SIZE], prefix: u8, block_num: u64) {
+fn or_block_num(block: __m128i, block_num: usize) -> __m128i {
     unsafe {
-        // Load block number into lower half of vector.
         let bnum = _mm_set_epi64x(0, block_num as i64);
-
-        // Convert it to big-endian and shift to upper half.
         let bnum_be = _mm_shuffle_epi8(bnum, LE2BE_SHUFFLE);
+        let xo = _mm_or_si128(bnum_be, block);
 
-        // First byte of output is the shifted prefix.
+        xo
+    }
+}
+
+#[inline]
+fn xor_block_num(block: __m128i, block_num: usize) -> __m128i {
+    unsafe {
+        let bnum = _mm_set_epi64x(0, block_num as i64);
+        let bnum_be = _mm_shuffle_epi8(bnum, LE2BE_SHUFFLE);
+        let xo = _mm_xor_si128(bnum_be, block);
+
+        xo
+    }
+}
+
+#[inline]
+fn accumulate_blocks(
+    tag: &mut [u8; BLOCK_SIZE],
+    derived_ks: &[[u8; STK_SIZE]; STK_COUNT], // MUST be 16 byte aligned.
+    prefix: u8,
+    block_num: usize,
+    plaintext: &[u8],
+    nr_blocks: usize,
+) {
+    debug_assert!(plaintext.len() >= BLOCK_SIZE * nr_blocks);
+
+    let mut n = nr_blocks;
+    let mut i: usize = 0;
+
+    unsafe {
+        let mut t = _mm_loadu_si128(tag.as_ptr() as *const __m128i);
         let p = (prefix << PREFIX_SHIFT) as i8;
         let xp = _mm_set_epi8(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, p);
-        let xo = _mm_or_si128(bnum_be, xp);
 
-        _mm_storeu_si128(out.as_mut_ptr() as *mut __m128i, xo);
+        while n >= 4 {
+            let mut tweak0 = or_block_num(xp, i + block_num);
+            let mut tweak1 = or_block_num(xp, i + block_num + 1);
+            let mut tweak2 = or_block_num(xp, i + block_num + 2);
+            let mut tweak3 = or_block_num(xp, i + block_num + 3);
+
+            let pt0 = _mm_loadu_si128(plaintext[i * BLOCK_SIZE..].as_ptr() as *const __m128i);
+            let pt1 = _mm_loadu_si128(plaintext[(i + 1) * BLOCK_SIZE..].as_ptr() as *const __m128i);
+            let pt2 = _mm_loadu_si128(plaintext[(i + 2) * BLOCK_SIZE..].as_ptr() as *const __m128i);
+            let pt3 = _mm_loadu_si128(plaintext[(i + 3) * BLOCK_SIZE..].as_ptr() as *const __m128i);
+
+            let dk = _mm_load_si128(derived_ks[0].as_ptr() as *const __m128i);
+            let mut ct0 = _mm_xor_si128(pt0, _mm_xor_si128(dk, tweak0));
+            let mut ct1 = _mm_xor_si128(pt1, _mm_xor_si128(dk, tweak1));
+            let mut ct2 = _mm_xor_si128(pt2, _mm_xor_si128(dk, tweak2));
+            let mut ct3 = _mm_xor_si128(pt3, _mm_xor_si128(dk, tweak3));
+
+            for j in 1..ROUNDS + 1 {
+                tweak0 = _mm_shuffle_epi8(tweak0, H_SHUFFLE);
+                tweak1 = _mm_shuffle_epi8(tweak1, H_SHUFFLE);
+                tweak2 = _mm_shuffle_epi8(tweak2, H_SHUFFLE);
+                tweak3 = _mm_shuffle_epi8(tweak3, H_SHUFFLE);
+
+                let dk = _mm_load_si128(derived_ks[j].as_ptr() as *const __m128i);
+                ct0 = _mm_aesenc_si128(ct0, _mm_xor_si128(dk, tweak0));
+                ct1 = _mm_aesenc_si128(ct1, _mm_xor_si128(dk, tweak1));
+                ct2 = _mm_aesenc_si128(ct2, _mm_xor_si128(dk, tweak2));
+                ct3 = _mm_aesenc_si128(ct3, _mm_xor_si128(dk, tweak3));
+            }
+
+            t = _mm_xor_si128(ct0, t);
+            t = _mm_xor_si128(ct1, t);
+            t = _mm_xor_si128(ct2, t);
+            t = _mm_xor_si128(ct3, t);
+
+            i += 4;
+            n -= 4;
+        }
+
+        while n > 0 {
+            let mut tweak = or_block_num(xp, i + block_num);
+            let pt = _mm_loadu_si128(plaintext[i * BLOCK_SIZE..].as_ptr() as *const __m128i);
+
+            let dk = _mm_load_si128(derived_ks[0].as_ptr() as *const __m128i);
+            let mut ct = _mm_xor_si128(pt, _mm_xor_si128(dk, tweak));
+
+            for j in 1..ROUNDS + 1 {
+                tweak = _mm_shuffle_epi8(tweak, H_SHUFFLE);
+
+                let dk = _mm_load_si128(derived_ks[j].as_ptr() as *const __m128i);
+                ct = _mm_aesenc_si128(ct, _mm_xor_si128(dk, tweak));
+            }
+
+            t = _mm_xor_si128(ct, t);
+
+            i += 1;
+            n -= 1;
+        }
+
+        _mm_storeu_si128(tag.as_mut_ptr() as *mut __m128i, t);
     }
 }
 
 #[inline]
-fn encode_enc_tweak(out: &mut [u8; TWEAK_SIZE], tag: &[u8; TAG_SIZE], block_num: u64) {
+fn bc_xor_blocks(
+    ciphertext: &mut [u8],
+    derived_ks: &[[u8; STK_SIZE]; STK_COUNT], // MUST be 16 byte aligned.
+    tag: &[u8; BLOCK_SIZE],
+    block_num: usize,
+    nonce: &[u8; BLOCK_SIZE],
+    plaintext: &[u8],
+    nr_blocks: usize,
+) {
+    debug_assert!(plaintext.len() == ciphertext.len());
+    debug_assert!(plaintext.len() >= BLOCK_SIZE * nr_blocks);
+
+    let mut n = nr_blocks;
+    let mut i: usize = 0;
+
     unsafe {
-        // Convert block number to big-endian and move it to the upper half
-        // of the vector, clearing the lower half to zero.
-        let bnum = _mm_set_epi64x(0, block_num as i64);
-        let bnum_be = _mm_shuffle_epi8(bnum, LE2BE_SHUFFLE);
+        let xtag = _mm_loadu_si128(tag.as_ptr() as *const __m128i);
+        let xnonce = _mm_loadu_si128(nonce.as_ptr() as *const __m128i);
 
-        // Load tag that was previously ORed with 0x80 in the caller.
-        let ored_tag = _mm_loadu_si128(tag.as_ptr() as *const __m128i);
+        while n >= 4 {
+            let mut tweak0 = xor_block_num(xtag, i + block_num);
+            let mut tweak1 = xor_block_num(xtag, i + block_num + 1);
+            let mut tweak2 = xor_block_num(xtag, i + block_num + 2);
+            let mut tweak3 = xor_block_num(xtag, i + block_num + 3);
 
-        // XOR tag with the block number.
-        let ored_tag_xor_bn = _mm_xor_si128(ored_tag, bnum_be);
+            let dk = _mm_load_si128(derived_ks[0].as_ptr() as *const __m128i);
+            let mut ks0 = _mm_xor_si128(xnonce, _mm_xor_si128(dk, tweak0));
+            let mut ks1 = _mm_xor_si128(xnonce, _mm_xor_si128(dk, tweak1));
+            let mut ks2 = _mm_xor_si128(xnonce, _mm_xor_si128(dk, tweak2));
+            let mut ks3 = _mm_xor_si128(xnonce, _mm_xor_si128(dk, tweak3));
 
-        _mm_storeu_si128(out.as_mut_ptr() as *mut __m128i, ored_tag_xor_bn);
+            for j in 1..ROUNDS + 1 {
+                tweak0 = _mm_shuffle_epi8(tweak0, H_SHUFFLE);
+                tweak1 = _mm_shuffle_epi8(tweak1, H_SHUFFLE);
+                tweak2 = _mm_shuffle_epi8(tweak2, H_SHUFFLE);
+                tweak3 = _mm_shuffle_epi8(tweak3, H_SHUFFLE);
+
+                let dk = _mm_load_si128(derived_ks[j].as_ptr() as *const __m128i);
+                ks0 = _mm_aesenc_si128(ks0, _mm_xor_si128(dk, tweak0));
+                ks1 = _mm_aesenc_si128(ks1, _mm_xor_si128(dk, tweak1));
+                ks2 = _mm_aesenc_si128(ks2, _mm_xor_si128(dk, tweak2));
+                ks3 = _mm_aesenc_si128(ks3, _mm_xor_si128(dk, tweak3));
+            }
+
+            let pt0 = _mm_loadu_si128(plaintext[i * BLOCK_SIZE..].as_ptr() as *const __m128i);
+            let pt1 = _mm_loadu_si128(plaintext[(i + 1) * BLOCK_SIZE..].as_ptr() as *const __m128i);
+            let pt2 = _mm_loadu_si128(plaintext[(i + 2) * BLOCK_SIZE..].as_ptr() as *const __m128i);
+            let pt3 = _mm_loadu_si128(plaintext[(i + 3) * BLOCK_SIZE..].as_ptr() as *const __m128i);
+            _mm_storeu_si128(
+                ciphertext[i * BLOCK_SIZE..].as_ptr() as *mut __m128i,
+                _mm_xor_si128(pt0, ks0),
+            );
+            _mm_storeu_si128(
+                ciphertext[(i + 1) * BLOCK_SIZE..].as_ptr() as *mut __m128i,
+                _mm_xor_si128(pt1, ks1),
+            );
+            _mm_storeu_si128(
+                ciphertext[(i + 2) * BLOCK_SIZE..].as_ptr() as *mut __m128i,
+                _mm_xor_si128(pt2, ks2),
+            );
+            _mm_storeu_si128(
+                ciphertext[(i + 3) * BLOCK_SIZE..].as_ptr() as *mut __m128i,
+                _mm_xor_si128(pt3, ks3),
+            );
+
+            i += 4;
+            n -= 4;
+        }
+
+        while n > 0 {
+            let mut tweak = xor_block_num(xtag, i + block_num);
+
+            let dk = _mm_load_si128(derived_ks[0].as_ptr() as *const __m128i);
+            let mut ks = _mm_xor_si128(xnonce, _mm_xor_si128(dk, tweak));
+
+            for j in 1..ROUNDS + 1 {
+                tweak = _mm_shuffle_epi8(tweak, H_SHUFFLE);
+
+                let dk = _mm_load_si128(derived_ks[j].as_ptr() as *const __m128i);
+                ks = _mm_aesenc_si128(ks, _mm_xor_si128(dk, tweak));
+            }
+
+            let pt = _mm_loadu_si128(plaintext[i * BLOCK_SIZE..].as_ptr() as *const __m128i);
+            _mm_storeu_si128(
+                ciphertext[i * BLOCK_SIZE..].as_ptr() as *mut __m128i,
+                _mm_xor_si128(pt, ks),
+            );
+
+            i += 1;
+            n -= 1;
+        }
     }
 }
 
