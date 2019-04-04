@@ -1,3 +1,5 @@
+# Default code owners.
+* @kostko @Yawning @abukosek
 
 # Only the creator of the repo and the oasislabs admins
 # can manage the github settings of this repository
