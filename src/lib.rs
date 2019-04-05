@@ -682,7 +682,7 @@ mod tests {
 
     use self::{
         base64::decode,
-        rand::{OsRng as TheRng, Rng},
+        rand::{rngs::OsRng as TheRng, RngCore},
         serde_json::{Map, Value},
         test::{black_box, Bencher},
     };
