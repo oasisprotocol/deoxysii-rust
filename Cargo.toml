@@ -1,11 +1,10 @@
 [package]
-name = "deoxysii-rust"
+name = "deoxysii"
 version = "0.1.0"
 authors = ["Oasis Labs Inc. <info@oasislabs.com>"]
 description = "Deoxys-II-256-128 MRAE primitives for Rust"
 repository = "https://github.com/oasislabs/deoxysii-rust"
 edition = "2018"
-publish = false
 
 [dependencies]
 failure = { version = "0.1", default-features = false, features = ["derive"] }
@@ -20,3 +19,4 @@ serde_json = "1.0"
 [profile.release]
 incremental = false
 lto = true
+opt-level = 3
