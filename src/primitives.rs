@@ -68,11 +68,14 @@ fn stk_derive_k(key: &[u8; KEY_SIZE]) -> [[u8; STK_SIZE]; STK_COUNT] {
             _mm_store_si128(derived_ks.0[i].as_mut_ptr() as *mut __m128i, dki);
         }
 
+        sanitize_xmm_registers();
+
         derived_ks.0
     }
 }
 
 /// Performs block encryption using the block cipher in-place.
+#[inline]
 fn bc_encrypt_in_place(
     block: &mut [u8; BLOCK_SIZE],
     derived_ks: &[[u8; STK_SIZE]; STK_COUNT], // MUST be 16 byte aligned.
@@ -101,7 +104,7 @@ fn bc_encrypt_in_place(
     }
 }
 
-#[inline]
+#[inline(always)]
 fn or_block_num(block: __m128i, block_num: usize) -> __m128i {
     unsafe {
         let bnum = _mm_set_epi64x(0, block_num as i64);
@@ -110,7 +113,7 @@ fn or_block_num(block: __m128i, block_num: usize) -> __m128i {
     }
 }
 
-#[inline]
+#[inline(always)]
 fn xor_block_num(block: __m128i, block_num: usize) -> __m128i {
     unsafe {
         let bnum = _mm_set_epi64x(0, block_num as i64);
@@ -293,5 +296,35 @@ fn bc_xor_blocks(
             i += 1;
             n -= 1;
         }
+    }
+}
+
+#[inline(always)]
+fn sanitize_xmm_registers() {
+    unsafe {
+        // This is overly heavy handed, but the downside to using intrinsics
+        // is that there's no way to tell which registers end up with sensitive
+        // key material.
+        asm!("pxor %xmm0, %xmm0
+            pxor %xmm1, %xmm1
+            pxor %xmm2, %xmm2
+            pxor %xmm3, %xmm3
+            pxor %xmm4, %xmm4
+            pxor %xmm5, %xmm5
+            pxor %xmm6, %xmm6
+            pxor %xmm7, %xmm7
+            pxor %xmm8, %xmm8
+            pxor %xmm9, %xmm9
+            pxor %xmm10, %xmm10
+            pxor %xmm11, %xmm11
+            pxor %xmm12, %xmm12
+            pxor %xmm13, %xmm13
+            pxor %xmm14, %xmm14
+            pxor %xmm15, %xmm15"
+            :
+            :
+            :"xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7", "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15"
+            : "volatile"
+        );
     }
 }

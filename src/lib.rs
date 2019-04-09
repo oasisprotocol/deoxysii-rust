@@ -1,6 +1,6 @@
 //! Deoxys-II-256-128 MRAE primitives implementation.
 #![cfg_attr(not(test), no_std)]
-#![feature(alloc, test)]
+#![feature(alloc, asm, test)]
 
 #[cfg(not(all(target_feature = "aes", target_feature = "ssse3",)))]
 compile_error!("The following target_feature flags must be set: +aes,+ssse3.");
@@ -115,6 +115,8 @@ impl DeoxysII {
         auth[0] |= 0x80;
 
         self.seal_tag(&plaintext, &enc_nonce, &auth, &mut ciphertext);
+
+        sanitize_xmm_registers();
 
         ciphertext
     }
@@ -237,6 +239,7 @@ impl DeoxysII {
 
         // Verify tag.
         let tags_are_equal = tag.ct_eq(&auth);
+        sanitize_xmm_registers(); // This needs to come after the tag comparison.
         if tags_are_equal.unwrap_u8() == 0 {
             plaintext.zeroize();
             tag.zeroize();
