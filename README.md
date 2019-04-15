@@ -3,7 +3,7 @@
 This crate provides a Rust implementation of [Deoxys-II-256-128 v1.41][0].
 
 The implementation uses Intel SIMD intrinsics (SSSE3 and AES-NI) for
-speed and will therefore only run on x86-64.
+speed and will therefore only run on relatively modern x86-64 processors.
 
 The nightly version of Rust is required to build this crate.
 
