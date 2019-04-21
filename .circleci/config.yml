@@ -1,0 +1,9 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: circleci/rust:stretch
+    steps:
+      - checkout
+      - run: rustup toolchain install nightly
+      - run: make
