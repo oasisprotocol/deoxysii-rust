@@ -67,7 +67,7 @@ macro_rules! m128i_vec {
 }
 
 /// Byte shuffle order for the h() function, apply it with `_mm_shuffle_epi8`.
-const H_SHUFFLE: __m128i = m128i_vec![7, 0, 13, 10, 11, 4, 1, 14, 15, 8, 5, 2, 3, 12, 9, 6];
+const H_SHUFFLE: __m128i = m128i_vec![1, 6, 11, 12, 5, 10, 15, 0, 9, 14, 3, 4, 13, 2, 7, 8];
 
 /// This shuffle order converts the lower half of the vector from little-endian
 /// to big-endian and moves it to the upper half, clearing the lower half to
