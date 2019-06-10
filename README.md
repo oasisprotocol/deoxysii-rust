@@ -2,7 +2,7 @@
 
 [![CircleCI](https://circleci.com/gh/oasislabs/deoxysii-rust.svg?style=svg&circle-token=7b28eb2bede060d972c153006a3023224eabdeca)](https://circleci.com/gh/oasislabs/deoxysii-rust)
 
-This crate provides a Rust implementation of [Deoxys-II-256-128 v1.41][0].
+This crate provides a Rust implementation of [Deoxys-II-256-128 v1.43][0].
 
 The implementation uses Intel SIMD intrinsics (SSSE3 and AES-NI) for
 speed and will therefore only run on relatively modern x86-64 processors.
@@ -11,4 +11,4 @@ The nightly version of Rust is required to build this crate.
 
 To build everything, run tests and benchmarks, simply run `make`.
 
-[0]: https://competitions.cr.yp.to/round3/deoxysv141.pdf
+[0]: https://sites.google.com/view/deoxyscipher
