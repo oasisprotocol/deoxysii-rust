@@ -22,7 +22,7 @@
 
 //! Deoxys-II-256-128 MRAE primitive implementation.
 #![cfg_attr(not(test), no_std)]
-#![feature(alloc, asm, test)]
+#![feature(asm, test)]
 
 #[cfg(not(all(target_feature = "aes", target_feature = "ssse3",)))]
 compile_error!("The following target_feature flags must be set: +aes,+ssse3.");
