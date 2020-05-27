@@ -28,25 +28,25 @@ all: debug test release bench
 
 debug:
 	@$(ECHO) "$(CYAN)*** Building debug target...$(OFF)"
-	@cargo +nightly build
+	@cargo build
 
 release:
 	@$(ECHO) "$(CYAN)*** Building release target...$(OFF)"
-	@cargo +nightly build --release
+	@cargo build --release
 
 test:
 	@$(ECHO) "$(CYAN)*** Running tests...$(OFF)"
-	@cargo +nightly test -- tests::test_
+	@cargo test -- tests::test_
 
 bench:
 	@$(ECHO) "$(CYAN)*** Running benchmarks...$(OFF)"
-	@cargo +nightly bench -- tests::bench_
+	@cargo bench -- tests::bench_
 
 fmt:
 	@$(ECHO) "$(CYAN)*** Formatting code...$(OFF)"
-	@cargo +nightly fmt
+	@cargo fmt
 
 clean:
 	@$(ECHO) "$(CYAN)*** Cleaning up...$(OFF)"
-	@cargo +nightly clean
+	@cargo clean
 	@-rm -f Cargo.lock

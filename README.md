@@ -1,6 +1,9 @@
 # deoxysii-rust - Deoxys-II-256-128 for Rust
 
-[![CircleCI](https://circleci.com/gh/oasislabs/deoxysii-rust.svg?style=svg&circle-token=7b28eb2bede060d972c153006a3023224eabdeca)](https://circleci.com/gh/oasislabs/deoxysii-rust)
+[![Build status][github-ci-tests-badge]][github-ci-tests-link]
+
+[github-ci-tests-badge]: https://github.com/oasisprotocol/deoxysii-rust/workflows/ci-tests/badge.svg
+[github-ci-tests-link]: https://github.com/oasisprotocol/deoxysii-rust/actions?query=workflow:ci-tests
 
 This crate provides a Rust implementation of [Deoxys-II-256-128 v1.43][0].
 
