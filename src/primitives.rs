@@ -327,7 +327,7 @@ fn sanitize_xmm_registers() {
         // This is overly heavy handed, but the downside to using intrinsics
         // is that there's no way to tell which registers end up with sensitive
         // key material.
-        asm!("pxor %xmm0, %xmm0
+        llvm_asm!("pxor %xmm0, %xmm0
             pxor %xmm1, %xmm1
             pxor %xmm2, %xmm2
             pxor %xmm3, %xmm3
