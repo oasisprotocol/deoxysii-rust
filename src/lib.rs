@@ -21,15 +21,12 @@
 // SOFTWARE.
 
 //! Deoxys-II-256-128 MRAE primitive implementation.
-#![cfg_attr(not(test), no_std)]
 #![feature(llvm_asm, test)]
 
 #[cfg(not(all(target_feature = "aes", target_feature = "ssse3",)))]
 compile_error!("The following target_feature flags must be set: +aes,+ssse3.");
 
 extern crate alloc;
-#[macro_use]
-extern crate failure;
 
 use alloc::vec::Vec;
 use core::arch::x86_64::{
@@ -37,18 +34,18 @@ use core::arch::x86_64::{
     _mm_set1_epi8, _mm_set_epi64x, _mm_set_epi8, _mm_shuffle_epi8, _mm_slli_epi64, _mm_srli_epi64,
     _mm_store_si128, _mm_storeu_si128, _mm_xor_si128,
 };
-
 use subtle::ConstantTimeEq as _;
+use thiserror::Error;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 include!("constants.rs");
 include!("primitives.rs");
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum DecryptionError {
-    #[fail(display = "Ciphertext did not include a complete tag.")]
+    #[error("Ciphertext did not include a complete tag.")]
     MissingTag,
-    #[fail(display = "Tag verification failed")]
+    #[error("Tag verification failed")]
     InvalidTag,
 }
 
