@@ -8,45 +8,39 @@ ifdef ISATTY
 MAGENTA = \e[35;1m
 CYAN = \e[36;1m
 OFF = \e[0m
-
-# Built-in echo doesn't support '-e'.
-ECHO = /bin/echo -e
 else
 # Don't use colors if not running interactively.
 MAGENTA = ""
 CYAN = ""
 OFF = ""
-
-# OK to use built-in echo.
-ECHO = echo
 endif
 
 .PHONY: all debug test release bench fmt clean
 
 all: debug test release bench
-	@$(ECHO) "$(CYAN)*** Everything built successfully!$(OFF)"
+	@printf "$(CYAN)*** Everything built successfully!$(OFF)\n"
 
 debug:
-	@$(ECHO) "$(CYAN)*** Building debug target...$(OFF)"
+	@printf "$(CYAN)*** Building debug target...$(OFF)\n"
 	@cargo build
 
 release:
-	@$(ECHO) "$(CYAN)*** Building release target...$(OFF)"
+	@printf "$(CYAN)*** Building release target...$(OFF)\n"
 	@cargo build --release
 
 test:
-	@$(ECHO) "$(CYAN)*** Running tests...$(OFF)"
+	@printf "$(CYAN)*** Running tests...$(OFF)\n"
 	@cargo test -- tests::test_
 
 bench:
-	@$(ECHO) "$(CYAN)*** Running benchmarks...$(OFF)"
+	@printf "$(CYAN)*** Running benchmarks...$(OFF)\n"
 	@cargo bench -- tests::bench_
 
 fmt:
-	@$(ECHO) "$(CYAN)*** Formatting code...$(OFF)"
+	@printf "$(CYAN)*** Formatting code...$(OFF)\n"
 	@cargo fmt
 
 clean:
-	@$(ECHO) "$(CYAN)*** Cleaning up...$(OFF)"
+	@printf "$(CYAN)*** Cleaning up...$(OFF)\n"
 	@cargo clean
 	@-rm -f Cargo.lock
