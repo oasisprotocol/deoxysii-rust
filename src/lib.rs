@@ -28,12 +28,16 @@ compile_error!("The following target_feature flags must be set: +aes,+ssse3.");
 
 extern crate alloc;
 
+#[cfg(test)]
+mod tests;
+
 use alloc::vec::Vec;
 use core::arch::x86_64::{
     __m128i, _mm_aesenc_si128, _mm_and_si128, _mm_load_si128, _mm_loadu_si128, _mm_or_si128,
     _mm_set1_epi8, _mm_set_epi64x, _mm_set_epi8, _mm_shuffle_epi8, _mm_slli_epi64, _mm_srli_epi64,
     _mm_store_si128, _mm_storeu_si128, _mm_xor_si128,
 };
+
 use subtle::ConstantTimeEq as _;
 use thiserror::Error;
 use zeroize::Zeroize as _;
@@ -360,5 +364,3 @@ impl DeoxysII {
         );
     }
 }
-
-include!("tests.rs");
