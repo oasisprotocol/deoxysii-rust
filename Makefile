@@ -30,11 +30,11 @@ release:
 
 test:
 	@printf "$(CYAN)*** Running tests...$(OFF)\n"
-	@cargo test -- tests::test_
+	@cargo test
 
 bench:
 	@printf "$(CYAN)*** Running benchmarks...$(OFF)\n"
-	@cargo bench -- tests::bench_
+	@cargo bench
 
 fmt:
 	@printf "$(CYAN)*** Formatting code...$(OFF)\n"
