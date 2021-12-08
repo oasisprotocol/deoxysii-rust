@@ -46,11 +46,19 @@ include!("constants.rs");
 include!("primitives.rs");
 
 #[derive(Debug, Error)]
+pub enum EncryptionError {
+    #[error("The provided ciphertext buffer was too small.")]
+    ShortCipehrtext,
+}
+
+#[derive(Debug, Error)]
 pub enum DecryptionError {
     #[error("Ciphertext did not include a complete tag.")]
     MissingTag,
     #[error("Tag verification failed")]
     InvalidTag,
+    #[error("The provided plaintext buffer was too small.")]
+    ShortPlaintext,
 }
 
 /// Deoxys-II-256-128 state.
@@ -101,9 +109,32 @@ impl DeoxysII {
     pub fn seal(
         &self,
         nonce: &[u8; NONCE_SIZE],
-        plaintext: Vec<u8>,
-        additional_data: Vec<u8>,
+        plaintext: impl AsRef<[u8]>,
+        additional_data: impl AsRef<[u8]>,
     ) -> Vec<u8> {
+        let plaintext = plaintext.as_ref();
+        let mut ciphertext = Vec::with_capacity(plaintext.len() + TAG_SIZE);
+        unsafe { ciphertext.set_len(ciphertext.capacity()) }
+        self.seal_into(nonce, plaintext, additional_data.as_ref(), &mut ciphertext)
+            .unwrap();
+        ciphertext
+    }
+
+    /// Like [`DeoxysII::seal`] but seals into `ciphertext_with_tag`,
+    /// returning the number of bytes written.
+    pub fn seal_into(
+        &self,
+        nonce: &[u8; NONCE_SIZE],
+        plaintext: &[u8],
+        additional_data: &[u8],
+        ciphertext_with_tag: &mut [u8],
+    ) -> Result<usize, EncryptionError> {
+        let pt_len = plaintext.len();
+        let ctt_len = pt_len + TAG_SIZE;
+        if ciphertext_with_tag.len() < ctt_len {
+            return Err(EncryptionError::ShortCipehrtext);
+        }
+
         let mut auth = [0u8; TAG_SIZE];
 
         self.seal_ad(&additional_data, &mut auth);
@@ -115,12 +146,8 @@ impl DeoxysII {
         enc_nonce[0] = PREFIX_TAG << PREFIX_SHIFT;
         bc_encrypt_in_place(&mut auth, &self.derived_ks, &enc_nonce);
 
-        let pt_len = plaintext.len();
-        let mut ciphertext = Vec::with_capacity(pt_len + TAG_SIZE);
-        unsafe { ciphertext.set_len(ciphertext.capacity()) };
-
         // Put the tag at the end.
-        ciphertext[pt_len..pt_len + TAG_SIZE].copy_from_slice(&auth);
+        ciphertext_with_tag[pt_len..pt_len + TAG_SIZE].copy_from_slice(&auth);
 
         // Encrypt message.
         enc_nonce[0] = 0;
@@ -128,11 +155,11 @@ impl DeoxysII {
         // encode_enc_tweak() requires the first byte of the tag to be modified.
         auth[0] |= 0x80;
 
-        self.seal_tag(&plaintext, &enc_nonce, &auth, &mut ciphertext);
+        self.seal_tag(&plaintext, &enc_nonce, &auth, ciphertext_with_tag);
 
         sanitize_xmm_registers();
 
-        ciphertext
+        Ok(ctt_len)
     }
 
     fn seal_ad(&self, additional_data: &[u8], auth: &mut [u8; 16]) {
@@ -228,9 +255,27 @@ impl DeoxysII {
     pub fn open(
         &self,
         nonce: &[u8; NONCE_SIZE],
-        mut ciphertext_with_tag: Vec<u8>,
-        additional_data: Vec<u8>,
+        mut ciphertext_with_tag: impl AsMut<[u8]>,
+        additional_data: impl AsRef<[u8]>,
     ) -> Result<Vec<u8>, DecryptionError> {
+        let ciphertext_with_tag = ciphertext_with_tag.as_mut();
+        let additional_data = additional_data.as_ref();
+        let mut plaintext = Vec::with_capacity(ciphertext_with_tag.len().saturating_sub(TAG_SIZE));
+        unsafe { plaintext.set_len(plaintext.capacity()) }
+        let pt_len = self.open_into(nonce, ciphertext_with_tag, additional_data, &mut plaintext)?;
+        debug_assert_eq!(plaintext.len(), pt_len);
+        Ok(plaintext)
+    }
+
+    /// Like [`DeoxysII::open`] but writes the plaintext into `plaintext` if successful,
+    /// returning the number of bytes written.
+    pub fn open_into(
+        &self,
+        nonce: &[u8; NONCE_SIZE],
+        ciphertext_with_tag: &mut [u8],
+        additional_data: &[u8],
+        plaintext: &mut [u8],
+    ) -> Result<usize, DecryptionError> {
         let ctt_len = ciphertext_with_tag.len();
         if ctt_len < TAG_SIZE {
             return Err(DecryptionError::MissingTag);
@@ -238,12 +283,13 @@ impl DeoxysII {
 
         let (ciphertext, tag) = ciphertext_with_tag.split_at_mut(ctt_len - TAG_SIZE);
 
-        let mut plaintext = Vec::with_capacity(ciphertext.len());
-        unsafe { plaintext.set_len(plaintext.capacity()) };
+        if plaintext.len() < ciphertext.len() {
+            return Err(DecryptionError::ShortPlaintext);
+        }
 
         let mut auth = [0u8; TAG_SIZE];
 
-        let mut dec_nonce = self.open_message(&ciphertext, &tag, nonce, &mut plaintext);
+        let mut dec_nonce = self.open_message(&ciphertext, &tag, nonce, plaintext);
         self.open_ad(&additional_data, &mut auth);
         self.open_tag(&plaintext, &mut auth);
 
@@ -260,7 +306,7 @@ impl DeoxysII {
             auth.zeroize();
             Err(DecryptionError::InvalidTag)
         } else {
-            Ok(plaintext)
+            Ok(ciphertext.len())
         }
     }
 
