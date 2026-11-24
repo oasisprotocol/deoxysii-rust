@@ -1,7 +1,8 @@
 use deoxysii::{DeoxysII, KEY_SIZE, NONCE_SIZE};
 
-use criterion::{black_box, criterion_group, criterion_main, Bencher, Criterion};
+use criterion::{criterion_group, criterion_main, Bencher, Criterion};
 use rand::{rngs::OsRng, RngCore};
+use std::hint::black_box;
 
 fn mrae_seal_4096(b: &mut Bencher) {
     let mut rng = OsRng;
