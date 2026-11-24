@@ -1,24 +1,24 @@
 use deoxysii::{DeoxysII, KEY_SIZE, NONCE_SIZE};
 
 use criterion::{criterion_group, criterion_main, Bencher, Criterion};
-use rand::{rngs::OsRng, RngCore};
+use rand::{rngs::SysRng, TryRng};
 use std::hint::black_box;
 
 fn mrae_seal_4096(b: &mut Bencher) {
-    let mut rng = OsRng;
+    let mut rng = SysRng;
 
     // Set up the key.
     let mut key = [0u8; KEY_SIZE];
-    rng.fill_bytes(&mut key);
+    rng.try_fill_bytes(&mut key).unwrap();
     let d2 = DeoxysII::new(&key);
 
     // Set up the payload.
     let mut nonce = [0u8; NONCE_SIZE];
-    rng.fill_bytes(&mut nonce);
+    rng.try_fill_bytes(&mut nonce).unwrap();
     let mut text = [0u8; 4096];
-    rng.fill_bytes(&mut text);
+    rng.try_fill_bytes(&mut text).unwrap();
     let mut aad = [0u8; 64];
-    rng.fill_bytes(&mut aad);
+    rng.try_fill_bytes(&mut aad).unwrap();
 
     // Benchmark sealing.
     b.iter(|| {
@@ -29,20 +29,20 @@ fn mrae_seal_4096(b: &mut Bencher) {
 }
 
 fn mrae_open_4096(b: &mut Bencher) {
-    let mut rng = OsRng;
+    let mut rng = SysRng;
 
     // Set up the key.
     let mut key = [0u8; KEY_SIZE];
-    rng.fill_bytes(&mut key);
+    rng.try_fill_bytes(&mut key).unwrap();
     let d2 = DeoxysII::new(&key);
 
     // Set up the payload.
     let mut nonce = [0u8; NONCE_SIZE];
-    rng.fill_bytes(&mut nonce);
+    rng.try_fill_bytes(&mut nonce).unwrap();
     let mut text = [0u8; 4096];
-    rng.fill_bytes(&mut text);
+    rng.try_fill_bytes(&mut text).unwrap();
     let mut aad = [0u8; 64];
-    rng.fill_bytes(&mut aad);
+    rng.try_fill_bytes(&mut aad).unwrap();
 
     // Seal the payload.
     let ciphertext = d2.seal(&nonce, text, aad);
@@ -56,11 +56,11 @@ fn mrae_open_4096(b: &mut Bencher) {
 }
 
 fn mrae_new(b: &mut Bencher) {
-    let mut rng = OsRng;
+    let mut rng = SysRng;
 
     // Set up the key.
     let mut key = [0u8; KEY_SIZE];
-    rng.fill_bytes(&mut key);
+    rng.try_fill_bytes(&mut key).unwrap();
 
     b.iter(|| {
         let _d2 = black_box(DeoxysII::new(&key));
