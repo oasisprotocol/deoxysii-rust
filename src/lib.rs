@@ -285,6 +285,7 @@ impl DeoxysII {
         if plaintext.len() < ciphertext.len() {
             return Err(DecryptionError::ShortPlaintext);
         }
+        let plaintext = &mut plaintext[..ciphertext.len()];
 
         let mut auth = [0u8; TAG_SIZE];
 
