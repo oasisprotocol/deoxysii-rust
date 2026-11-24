@@ -9,7 +9,7 @@ edition = "2021"
 
 [dependencies]
 subtle = "2.0"
-thiserror = "1.0"
+thiserror = "2.0"
 zeroize = { version = "1.9", features = ["zeroize_derive"] }
 
 [dev-dependencies]
