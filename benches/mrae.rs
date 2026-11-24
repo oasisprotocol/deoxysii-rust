@@ -44,7 +44,7 @@ fn mrae_open_4096(b: &mut Bencher) {
     rng.fill_bytes(&mut aad);
 
     // Seal the payload.
-    let ciphertext = d2.seal(&nonce, text.to_vec(), aad.to_vec());
+    let ciphertext = d2.seal(&nonce, text, aad);
 
     // Benchmark opening.
     b.iter(|| {

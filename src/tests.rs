@@ -147,7 +147,7 @@ fn test_mrae_vectors() {
         let tag = decode(v["Tag"].as_str().unwrap()).unwrap().to_vec();
         let length: usize = v["Length"].as_u64().unwrap() as usize;
 
-        let ct = d2.seal(&nonce, msg[..length].to_vec(), aad[..length].to_vec());
+        let ct = d2.seal(&nonce, &msg[..length], &aad[..length]);
 
         assert_eq!(ct.len(), length + TAG_SIZE);
 
