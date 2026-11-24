@@ -8,7 +8,7 @@ license = "MIT"
 edition = "2021"
 
 [dependencies]
-subtle = "2.0"
+subtle = "2.6"
 thiserror = "2.0"
 zeroize = { version = "1.9", features = ["zeroize_derive"] }
 
