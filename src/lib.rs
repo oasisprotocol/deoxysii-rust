@@ -105,6 +105,7 @@ impl DeoxysII {
 
     /// Encrypts and authenticates plaintext, authenticates the additional
     /// data and returns the result.
+    #[allow(clippy::uninit_vec)]
     pub fn seal(
         &self,
         nonce: &[u8; NONCE_SIZE],
@@ -136,8 +137,8 @@ impl DeoxysII {
 
         let mut auth = [0u8; TAG_SIZE];
 
-        self.seal_ad(&additional_data, &mut auth);
-        self.seal_message(&plaintext, &mut auth);
+        self.seal_ad(additional_data, &mut auth);
+        self.seal_message(plaintext, &mut auth);
 
         // Handle nonce.
         let mut enc_nonce = [0u8; BLOCK_SIZE];
@@ -154,7 +155,7 @@ impl DeoxysII {
         // encode_enc_tweak() requires the first byte of the tag to be modified.
         auth[0] |= 0x80;
 
-        self.seal_tag(&plaintext, &enc_nonce, &auth, ciphertext_with_tag);
+        self.seal_tag(plaintext, &enc_nonce, &auth, ciphertext_with_tag);
 
         sanitize_xmm_registers();
 
@@ -222,9 +223,9 @@ impl DeoxysII {
                 bc_xor_blocks(
                     &mut ciphertext[0..num_bytes],
                     &self.derived_ks,
-                    &auth,
+                    auth,
                     0,
-                    &nonce,
+                    nonce,
                     &plaintext[0..num_bytes],
                     full_blocks,
                 );
@@ -234,9 +235,9 @@ impl DeoxysII {
                 bc_xor_blocks(
                     &mut out,
                     &self.derived_ks,
-                    &auth,
+                    auth,
                     full_blocks,
-                    &nonce,
+                    nonce,
                     &trailing_block,
                     1,
                 );
@@ -251,6 +252,7 @@ impl DeoxysII {
     /// data and, if successful, returns the resulting plaintext.
     /// If the tag verification fails, an error is returned and the
     /// intermediary plaintext is securely erased from memory.
+    #[allow(clippy::uninit_vec)]
     pub fn open(
         &self,
         nonce: &[u8; NONCE_SIZE],
@@ -289,9 +291,9 @@ impl DeoxysII {
 
         let mut auth = [0u8; TAG_SIZE];
 
-        let mut dec_nonce = self.open_message(&ciphertext, &tag, nonce, plaintext);
-        self.open_ad(&additional_data, &mut auth);
-        self.open_tag(&plaintext, &mut auth);
+        let mut dec_nonce = self.open_message(ciphertext, tag, nonce, plaintext);
+        self.open_ad(additional_data, &mut auth);
+        self.open_tag(plaintext, &mut auth);
 
         // tag' <- Ek(0001||0000||N, tag')
         dec_nonce[0] = PREFIX_TAG << PREFIX_SHIFT;
@@ -321,7 +323,7 @@ impl DeoxysII {
         let mut dec_tag = [0u8; TAG_SIZE];
 
         dec_nonce[1..].copy_from_slice(nonce);
-        dec_tag.copy_from_slice(&tag);
+        dec_tag.copy_from_slice(tag);
         dec_tag[0] |= 0x80;
 
         process_blocks!(

@@ -39,12 +39,14 @@ const RCON: [__m128i; STK_COUNT] = generate_rcon_matrix![
 /// The derived partial STK is passed to seal/open instead of the actual
 /// key.
 fn stk_derive_k(key: &[u8; KEY_SIZE]) -> [[u8; STK_SIZE]; STK_COUNT] {
-    debug_assert!(STK_SIZE == BLOCK_SIZE);
+    const {
+        debug_assert!(STK_SIZE == BLOCK_SIZE);
+    }
 
     unsafe {
         #[repr(align(16))]
-        struct DKS([[u8; STK_SIZE]; STK_COUNT]);
-        let mut derived_ks = DKS([[0u8; STK_SIZE]; STK_COUNT]);
+        struct Dks([[u8; STK_SIZE]; STK_COUNT]);
+        let mut derived_ks = Dks([[0u8; STK_SIZE]; STK_COUNT]);
 
         // LFSR masks for the vector bitops.
         let lfsr_x0_mask = _mm_set1_epi8(1);
@@ -113,10 +115,10 @@ fn bc_encrypt_in_place(
         let mut ct = _mm_xor_si128(pt, stk1);
 
         // Remaining iterations.
-        for i in 1..ROUNDS + 1 {
+        for derived_k in derived_ks.iter().skip(1).take(ROUNDS) {
             // Derive sub-tweak key for this round.
             tk1 = _mm_shuffle_epi8(tk1, H_SHUFFLE);
-            let dki = _mm_load_si128(derived_ks[i].as_ptr() as *const __m128i);
+            let dki = _mm_load_si128(derived_k.as_ptr() as *const __m128i);
 
             // Perform AESENC on the block.
             ct = _mm_aesenc_si128(ct, _mm_xor_si128(dki, tk1));
@@ -180,13 +182,13 @@ fn accumulate_blocks(
             let mut ct2 = _mm_xor_si128(pt2, _mm_xor_si128(dk, tweak2));
             let mut ct3 = _mm_xor_si128(pt3, _mm_xor_si128(dk, tweak3));
 
-            for j in 1..ROUNDS + 1 {
+            for derived_k in derived_ks.iter().skip(1).take(ROUNDS) {
                 tweak0 = _mm_shuffle_epi8(tweak0, H_SHUFFLE);
                 tweak1 = _mm_shuffle_epi8(tweak1, H_SHUFFLE);
                 tweak2 = _mm_shuffle_epi8(tweak2, H_SHUFFLE);
                 tweak3 = _mm_shuffle_epi8(tweak3, H_SHUFFLE);
 
-                let dk = _mm_load_si128(derived_ks[j].as_ptr() as *const __m128i);
+                let dk = _mm_load_si128(derived_k.as_ptr() as *const __m128i);
                 ct0 = _mm_aesenc_si128(ct0, _mm_xor_si128(dk, tweak0));
                 ct1 = _mm_aesenc_si128(ct1, _mm_xor_si128(dk, tweak1));
                 ct2 = _mm_aesenc_si128(ct2, _mm_xor_si128(dk, tweak2));
@@ -209,10 +211,10 @@ fn accumulate_blocks(
             let dk = _mm_load_si128(derived_ks[0].as_ptr() as *const __m128i);
             let mut ct = _mm_xor_si128(pt, _mm_xor_si128(dk, tweak));
 
-            for j in 1..ROUNDS + 1 {
+            for derived_k in derived_ks.iter().skip(1).take(ROUNDS) {
                 tweak = _mm_shuffle_epi8(tweak, H_SHUFFLE);
 
-                let dk = _mm_load_si128(derived_ks[j].as_ptr() as *const __m128i);
+                let dk = _mm_load_si128(derived_k.as_ptr() as *const __m128i);
                 ct = _mm_aesenc_si128(ct, _mm_xor_si128(dk, tweak));
             }
 
@@ -258,13 +260,13 @@ fn bc_xor_blocks(
             let mut ks2 = _mm_xor_si128(xnonce, _mm_xor_si128(dk, tweak2));
             let mut ks3 = _mm_xor_si128(xnonce, _mm_xor_si128(dk, tweak3));
 
-            for j in 1..ROUNDS + 1 {
+            for derived_k in derived_ks.iter().skip(1).take(ROUNDS) {
                 tweak0 = _mm_shuffle_epi8(tweak0, H_SHUFFLE);
                 tweak1 = _mm_shuffle_epi8(tweak1, H_SHUFFLE);
                 tweak2 = _mm_shuffle_epi8(tweak2, H_SHUFFLE);
                 tweak3 = _mm_shuffle_epi8(tweak3, H_SHUFFLE);
 
-                let dk = _mm_load_si128(derived_ks[j].as_ptr() as *const __m128i);
+                let dk = _mm_load_si128(derived_k.as_ptr() as *const __m128i);
                 ks0 = _mm_aesenc_si128(ks0, _mm_xor_si128(dk, tweak0));
                 ks1 = _mm_aesenc_si128(ks1, _mm_xor_si128(dk, tweak1));
                 ks2 = _mm_aesenc_si128(ks2, _mm_xor_si128(dk, tweak2));
@@ -302,10 +304,10 @@ fn bc_xor_blocks(
             let dk = _mm_load_si128(derived_ks[0].as_ptr() as *const __m128i);
             let mut ks = _mm_xor_si128(xnonce, _mm_xor_si128(dk, tweak));
 
-            for j in 1..ROUNDS + 1 {
+            for derived_k in derived_ks.iter().skip(1).take(ROUNDS) {
                 tweak = _mm_shuffle_epi8(tweak, H_SHUFFLE);
 
-                let dk = _mm_load_si128(derived_ks[j].as_ptr() as *const __m128i);
+                let dk = _mm_load_si128(derived_k.as_ptr() as *const __m128i);
                 ks = _mm_aesenc_si128(ks, _mm_xor_si128(dk, tweak));
             }
 
