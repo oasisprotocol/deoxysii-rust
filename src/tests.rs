@@ -22,7 +22,7 @@
 
 use super::*;
 
-use base64::decode;
+use base64::{engine::general_purpose::STANDARD, Engine};
 use serde_json::{Map, Value};
 
 #[test]
@@ -122,16 +122,20 @@ fn test_mrae_vectors() {
     let test_vectors = include_str!("../test-data/Deoxys-II-256-128.json");
     let test_vectors: Map<String, Value> = serde_json::from_str(test_vectors).unwrap();
 
-    let key_vec = decode(test_vectors["Key"].as_str().unwrap())
+    let key_vec = STANDARD
+        .decode(test_vectors["Key"].as_str().unwrap())
         .unwrap()
         .to_vec();
-    let msg = decode(test_vectors["MsgData"].as_str().unwrap())
+    let msg = STANDARD
+        .decode(test_vectors["MsgData"].as_str().unwrap())
         .unwrap()
         .to_vec();
-    let aad = decode(test_vectors["AADData"].as_str().unwrap())
+    let aad = STANDARD
+        .decode(test_vectors["AADData"].as_str().unwrap())
         .unwrap()
         .to_vec();
-    let nonce_vec = decode(test_vectors["Nonce"].as_str().unwrap())
+    let nonce_vec = STANDARD
+        .decode(test_vectors["Nonce"].as_str().unwrap())
         .unwrap()
         .to_vec();
 
@@ -143,8 +147,14 @@ fn test_mrae_vectors() {
     let d2 = DeoxysII::new(&key);
 
     for v in test_vectors["KnownAnswers"].as_array().unwrap().iter() {
-        let ciphertext = decode(v["Ciphertext"].as_str().unwrap()).unwrap().to_vec();
-        let tag = decode(v["Tag"].as_str().unwrap()).unwrap().to_vec();
+        let ciphertext = STANDARD
+            .decode(v["Ciphertext"].as_str().unwrap())
+            .unwrap()
+            .to_vec();
+        let tag = STANDARD
+            .decode(v["Tag"].as_str().unwrap())
+            .unwrap()
+            .to_vec();
         let length: usize = v["Length"].as_u64().unwrap() as usize;
 
         let ct = d2.seal(&nonce, &msg[..length], &aad[..length]);
